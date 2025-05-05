@@ -87,16 +87,16 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- CONFIG --
+-- CONFIGURATION --
 local SETTINGS = {
-    AimKey = Enum.KeyCode.RightControl,  -- Change to your preferred key
-    Smoothing = 0.15,                   -- 0 = instant lock, 1 = no movement
-    MaxFOV = 60,                        -- Degrees
-    TeamCheck = true,                   -- Ignore teammates
-    VisibleCheck = true,                -- Only target visible players
-    AimPart = "Head",                   -- "Head" or "HumanoidRootPart"
-    Prediction = 0.1,                   -- Bullet lead (set to 0 to disable)
-    DrawFOV = true                      -- Show targeting circle
+    Enabled = true,
+    Smoothing = 0.15,          -- 0 = instant lock, 1 = no movement
+    MaxFOV = 60,              -- Degrees
+    TeamCheck = true,         -- Ignore teammates
+    VisibleCheck = true,      -- Only target visible players
+    AimPart = "Head",         -- "Head" or "HumanoidRootPart"
+    Prediction = 0.1,         -- Bullet lead (set to 0 to disable)
+    DrawFOV = true            -- Show FOV circle
 }
 
 -- FOV Circle Visualization --
@@ -106,24 +106,23 @@ if SETTINGS.DrawFOV then
     FOVCircle.Size = UDim2.new(0, SETTINGS.MaxFOV * 5, 0, SETTINGS.MaxFOV * 5)
     FOVCircle.Position = UDim2.new(0.5, -SETTINGS.MaxFOV * 2.5, 0.5, -SETTINGS.MaxFOV * 2.5)
     FOVCircle.BackgroundTransparency = 1
-    FOVCircle.BorderColor3 = Color3.new(1, 0.5, 0.5)
+    FOVCircle.BorderColor3 = Color3.new(1, 0, 0)
     FOVCircle.BorderSizePixel = 1
     FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
     FOVCircle.Parent = game.CoreGui
     local UICorner = Instance.new("UICorner")
     UICorner.CornerRadius = UDim.new(1, 0)
     UICorner.Parent = FOVCircle
-    FOVCircle.Visible = false
 end
 
--- Find best target --
-local function getBestTarget()
+-- Find closest visible target in FOV --
+local function getClosestTarget()
     if not LocalPlayer.Character then return nil end
     local myHead = LocalPlayer.Character:FindFirstChild("Head")
     if not myHead then return nil end
 
-    local bestTarget = nil
-    local closestAngle = math.rad(SETTINGS.MaxFOV)
+    local closestTarget = nil
+    local closestDistance = SETTINGS.MaxFOV
     local myPosition = myHead.Position
 
     for _, player in ipairs(Players:GetPlayers()) do
@@ -132,49 +131,50 @@ local function getBestTarget()
             if character then
                 local targetPart = character:FindFirstChild(SETTINGS.AimPart)
                 if targetPart then
-                    -- Visibility check
+                    -- Check visibility
                     if SETTINGS.VisibleCheck then
-                        local ray = Ray.new(
-                            myPosition,
-                            (targetPart.Position - myPosition).Unit * 1000
-                        )
-                        local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, character})
-                        if hit and not hit:IsDescendantOf(character) then
+                        local raycastParams = RaycastParams.new()
+                        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, character}
+                        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                        local raycastResult = workspace:Raycast(myPosition, (targetPart.Position - myPosition).Unit * 1000, raycastParams)
+                        if raycastResult and raycastResult.Instance:IsDescendantOf(character) == false then
                             continue
                         end
                     end
 
-                    -- Calculate angle to target
+                    -- Calculate angle
                     local direction = (targetPart.Position - myPosition).Unit
-                    local angle = math.acos(direction:Dot(Camera.CFrame.LookVector))
+                    local angle = math.deg(math.acos(direction:Dot(Camera.CFrame.LookVector)))
                     
-                    -- Check if best target
-                    if angle < closestAngle then
-                        closestAngle = angle
-                        bestTarget = targetPart
+                    -- Check if within FOV and closest
+                    if angle < closestDistance then
+                        closestDistance = angle
+                        closestTarget = targetPart
                     end
                 end
             end
         end
     end
 
-    return bestTarget
+    return closestTarget
 end
 
--- Smooth aiming --
+-- Smooth aiming function --
 local function aimAt(target)
     if not target then return end
     
-    -- Add prediction
+    -- Add prediction if enabled
     local targetPosition = target.Position
     if SETTINGS.Prediction > 0 then
-        local humanoid = target.Parent:FindFirstChildOfClass("Humanoid")
+        local character = target.Parent
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            targetPosition = targetPosition + (target.AssemblyLinearVelocity * SETTINGS.Prediction)
+            local velocity = target.AssemblyLinearVelocity
+            targetPosition = targetPosition + (velocity * SETTINGS.Prediction)
         end
     end
 
-    -- Smooth camera movement
+    -- Smooth aiming
     local currentLook = Camera.CFrame.LookVector
     local desiredLook = (targetPosition - Camera.CFrame.Position).Unit
     local smoothedLook = currentLook:Lerp(desiredLook, 1 - SETTINGS.Smoothing)
@@ -184,17 +184,20 @@ end
 
 -- Main loop --
 RunService.RenderStepped:Connect(function()
-    if FOVCircle then
-        FOVCircle.Visible = UserInputService:IsKeyDown(SETTINGS.AimKey)
-    end
+    if not SETTINGS.Enabled then return end
     
-    if UserInputService:IsKeyDown(SETTINGS.AimKey) then
-        local target = getBestTarget()
-        if target then
-            aimAt(target)
-        end
+    local target = getClosestTarget()
+    if target then
+        aimAt(target)
     end
 end)
 
--- Instructions --
-print("Aimbot loaded! Hold " .. tostring(SETTINGS.AimKey) .. " to activate")
+-- Toggle with RightShift --
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        SETTINGS.Enabled = not SETTINGS.Enabled
+        if FOVCircle then
+            FOVCircle.Visible = SETTINGS.Enabled
+        end
+    end
+end)
