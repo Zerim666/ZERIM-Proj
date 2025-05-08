@@ -80,3 +80,6 @@ for _, player in ipairs(Players:GetPlayers()) do
         createNameTag(player)
     end)
 end
+
+local Aimbot = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Aimbot-V3/main/src/Aimbot.lua"))()
+Aimbot.Load()
